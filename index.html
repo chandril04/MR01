@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+<body style="margin: 0; overflow: hidden;">
+
+    <a-scene webxr="optionalFeatures: hit-test;">
+        <a-assets>
+            <video id="myVid" src="deb01.mp4" loop="false"></video>
+        </a-assets>
+
+        <a-video id="ar-video" src="#myVid" position="0 1.5 -2" width="2" height="1.2" visible="false"></a-video>
+        
+        <a-text id="msg" value="Show your hand to start the surprise" position="0 2 -2" align="center" color="white"></a-text>
+
+        <a-camera position="0 1.6 0"></a-camera>
+    </a-scene>
+
+    <script>
+        const videoEl = document.querySelector('#myVid');
+        const arVideoEntity = document.querySelector('#ar-video');
+        const msg = document.querySelector('#msg');
+
+        // Setup MediaPipe Hands
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5 });
+
+        // When a hand is detected
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks.length > 0) {
+                // Hand detected!
+                if (videoEl.paused) {
+                    videoEl.play();
+                    arVideoEntity.setAttribute('visible', 'true');
+                    msg.setAttribute('value', 'Happy Anniversary! ❤️');
+                }
+            }
+        });
+
+        // Use phone camera for tracking
+        const camera = new Camera(document.querySelector('video'), {
+            onFrame: async () => { await hands.send({image: document.querySelector('video')}); },
+            width: 640, height: 480
+        });
+        camera.start();
+    </script>
+</body>
+</html>

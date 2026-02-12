@@ -10,6 +10,11 @@
   
 </head>
   <body>
+    <div id="overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif;">
+    <h1>Web AR Experience</h1>
+    <p>Point at your target and use hand gestures</p>
+    <button id="start-btn" style="padding: 15px 30px; font-size: 18px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px;">Start Camera & Video</button>
+</div>
     <a-scene mindar-image="imageTargetSrc: ./target.mind;" color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
       
       <a-assets>
@@ -27,56 +32,23 @@
     </a-scene>
 
     <script>
-   <script>
-  const videoElement = document.getElementById('vid');
-  const arVideoEntity = document.querySelector('#ar-video');
-
-  const hands = new Hands({locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-  }});
-
-  hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
-
-  hands.onResults((results) => {
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const landmarks = results.multiHandLandmarks[0];
-      const isHandOpen = landmarks[12].y < landmarks[9].y;
-
-      if (isHandOpen) {
-        videoElement.play().catch(() => {}); // Play video
-        arVideoEntity.setAttribute('visible', 'true');
-      } else {
-        videoElement.pause();
-        arVideoEntity.setAttribute('visible', 'false'); // Hide when fist closed
-      }
-    }
-  });
-
-  // WAIT FOR MINDAR TO READY THE VIDEO
-  const startTracking = () => {
-    const sceneEl = document.querySelector('a-scene');
-    sceneEl.addEventListener("arReady", (event) => {
-        console.log("MindAR is ready!");
-        const uiVideo = document.querySelector('video'); 
-        const camera = new Camera(uiVideo, {
-          onFrame: async () => {
-            await hands.send({image: uiVideo});
-          },
-          width: 640,
-          height: 480
-        });
-        camera.start();
+  document.getElementById('start-btn').addEventListener('click', () => {
+    // 1. Hide the overlay
+    document.getElementById('overlay').style.display = 'none';
+    
+    // 2. Play the video (even if it's hidden) to "unlock" it for the browser
+    const video = document.querySelector('#vid');
+    video.play().then(() => {
+        console.log("Video unlocked and playing!");
+    }).catch(err => {
+        console.error("Video failed to play:", err);
     });
-  };
 
-  window.onload = startTracking;
-</script>
+    // 3. Start the Hand Tracking
+    startTracking();
+});
     </script>
   </body>
 </html>
+
 

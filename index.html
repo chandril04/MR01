@@ -2,25 +2,35 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Anniversary MR</title>
+    <title>Anniversary Pro MR</title>
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <style>
+        body { margin: 0; }
+        #ui { position: fixed; top: 10px; left: 10px; z-index: 100; color: white; font-family: sans-serif; pointer-events: none; }
+        #startBtn { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 200; padding: 20px; background: #FF1493; color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+    </style>
 </head>
-<body style="margin: 0; overflow: hidden;">
+<body>
 
-    <button id="startButton" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:9999; padding:20px; background:#FF69B4; color:white; border:none; border-radius:10px; font-size:20px;">
-        OPEN THE GIFT 🎁
-    </button>
+    <div id="ui">
+        <h2>5th Anniversary MR</h2>
+        <p id="status">Click the button to begin...</p>
+    </div>
 
-    <a-scene>
+    <button id="startBtn">START SURPRISE 💖</button>
+
+    <a-scene webxr="optionalFeatures: hit-test, local-floor;" renderer="alpha: true;">
         <a-assets>
-            <video id="giftVideo" src="deb01.mp4" crossorigin="anonymous" playsinline></video>
+            <video id="giftVideo" src="deb01.mp4" loop crossorigin="anonymous" playsinline></video>
         </a-assets>
 
-        <a-video id="videoScreen" src="#giftVideo" position="0 1.6 -2" width="2" height="1.1" visible="false"></a-video>
-        
-        <a-text id="statusText" value="Wait for camera..." position="0 2.2 -2" align="center" color="white" width="4"></a-text>
+        <a-video id="videoScreen" src="#giftVideo" 
+                 position="0 1.6 -1" 
+                 width="1.6" height="0.9" 
+                 visible="false">
+        </a-video>
 
         <a-camera position="0 1.6 0"></a-camera>
     </a-scene>
@@ -28,34 +38,54 @@
     <video id="input_video" style="display:none;"></video>
 
     <script>
-        const videoElement = document.getElementById('input_video');
-        const startBtn = document.getElementById('startButton');
-        const statusText = document.getElementById('statusText');
-        const arVideo = document.getElementById('videoScreen');
-        const giftVidFile = document.getElementById('giftVideo');
+        const videoScreen = document.querySelector('#videoScreen');
+        const startBtn = document.querySelector('#startBtn');
+        const statusText = document.querySelector('#status');
+        const videoFile = document.querySelector('#giftVideo');
+        const inputVideo = document.getElementById('input_video');
 
-        // 1. Initialize Hand Tracking
+        // Logic for Hand Scaling & Moving
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+        
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
 
         hands.onResults((results) => {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                // Hand detected! Show the video and play
-                if (arVideo.getAttribute('visible') === false) {
-                    statusText.setAttribute('value', 'Happy 5th Anniversary! ❤️');
-                    arVideo.setAttribute('visible', 'true');
-                    giftVidFile.play();
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // 1. PLACE: Follow the palm (Landmark 9 is middle finger base)
+                const x = (landmarks[9].x - 0.5) * 3; 
+                const y = (0.5 - landmarks[9].y) * 2 + 1.5;
+                videoScreen.setAttribute('position', `${x} ${y} -1.5`);
+
+                // 2. ZOOM: Distance between Thumb(4) and Index(8)
+                const dist = Math.hypot(
+                    landmarks[4].x - landmarks[8].x,
+                    landmarks[4].y - landmarks[8].y
+                );
+                const scale = Math.max(0.5, dist * 5); // Minimum scale 0.5
+                videoScreen.setAttribute('scale', `${scale} ${scale} 1`);
+
+                // Reveal on first detection
+                if (!videoScreen.getAttribute('visible')) {
+                    videoScreen.setAttribute('visible', 'true');
+                    videoFile.play();
+                    statusText.innerText = "Move hand to place, Pinch to zoom!";
                 }
             }
         });
 
-        // 2. Start Everything on Click
         startBtn.addEventListener('click', () => {
             startBtn.style.display = 'none';
-            statusText.setAttribute('value', 'Now show your hand to the camera!');
+            statusText.innerText = "Scanning for hand...";
             
-            const camera = new Camera(videoElement, {
-                onFrame: async () => { await hands.send({image: videoElement}); },
+            const camera = new Camera(inputVideo, {
+                onFrame: async () => { await hands.send({image: inputVideo}); },
                 width: 640, height: 480
             });
             camera.start();

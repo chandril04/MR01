@@ -30,58 +30,33 @@
     </a-scene>
 
     <script>
-      const video = document.querySelector('#vid');
-      const arVideo = document.querySelector('#floating-video');
-      const startBtn = document.querySelector('#start-btn');
-
-      startBtn.addEventListener('click', () => {
-        document.querySelector('#overlay').style.display = 'none';
-        video.play();
-        initHandControl();
-      });
-
       function initHandControl() {
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+  const sceneEl = document.querySelector('a-scene');
+  
+  // WAIT until the AR engine says "I am ready and the camera is on"
+  sceneEl.addEventListener("arReady", (event) => {
+    console.log("AR is ready, now starting hand tracking...");
+    
+    const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
 
-        hands.onResults((results) => {
-          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-            const landmarks = results.multiHandLandmarks[0];
+    hands.onResults((results) => {
+      // ... (your hand logic here)
+    });
 
-            // GESTURE 1: Control Position with Index Finger (Landmark 8)
-            // Normalized coordinates (0 to 1) converted to AR space
-            const fingerX = (landmarks[8].x - 0.5) * 2; 
-            const fingerY = (0.5 - landmarks[8].y) * 2;
-            arVideo.setAttribute('position', `${fingerX} ${fingerY} 0`);
-
-            // GESTURE 2: Open Palm vs Fist (Middle Finger tip 12 vs base 9)
-            const isHandOpen = landmarks[12].y < landmarks[9].y;
-            if (isHandOpen) {
-              video.play();
-              arVideo.setAttribute('scale', '1.2 1.2 1.2');
-            } else {
-              video.pause();
-              arVideo.setAttribute('scale', '0.8 0.8 0.8');
-            }
-          }
-        });
-
-        // Use MindAR's video feed for MediaPipe tracking
-        const startCamera = () => {
-            const feed = document.querySelector('video');
-            if (feed) {
-                const camera = new Camera(feed, {
-                  onFrame: async () => { await hands.send({image: feed}); },
-                  width: 640, height: 480
-                });
-                camera.start();
-            } else { setTimeout(startCamera, 1000); }
-        };
-        startCamera();
-      }
+    // Use the video element MindAR already created
+    const uiVideo = document.querySelector('video'); 
+    const camera = new Camera(uiVideo, {
+      onFrame: async () => { await hands.send({image: uiVideo}); },
+      width: 640, height: 480
+    });
+    camera.start();
+  });
+}
     </script>
   </body>
 </html>
+
 
 
 

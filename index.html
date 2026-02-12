@@ -1,146 +1,77 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>MR Video App in WebXR</title>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1646424915/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1646424915/drawing_utils.js"></script>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+    <script src="https://unpkg.com/aframe-chromakey-material/dist/aframe-chromakey-material.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+  
 </head>
-<body>
-    <button id="startAR">Start AR</button>
-    <canvas id="canvas"></canvas>
-    <p id="status">Status: Ready</p> <!-- For debugging -->
+  <body>
+    <a-scene mindar-image="imageTargetSrc: ./target.mind;" color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+      
+      <a-assets>
+        <video id="vid" src="video.mp4" loop="true" crossorigin="anonymous"></video>
+      </a-assets>
+
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <a-entity mindar-image-target="targetIndex: 0">
+        <a-video id="ar-video" src="#vid" width="1" height="0.55" 
+                 material="shader: chromakey; color: 0.1 0.9 0.2" 
+                 position="0 0 0">
+        </a-video>
+      </a-entity>
+    </a-scene>
 
     <script>
-        const canvas = document.getElementById('canvas');
-        const startButton = document.getElementById('startAR');
-        const status = document.getElementById('status');
+      // Simple Hand Gesture Simulation (Example: Play/Pause on click)
+      // For full hand-tracking, you would integrate MediaPipe here.
+      const videoElement = document.getElementById('vid');
+const arVideoEntity = document.querySelector('#ar-video');
 
-        let scene, camera, renderer, xrSession, videoObject, isVideoPlaced = false;
-        let zoomScale = 1;
-        let hands, cameraUtils;
+// 1. Setup MediaPipe Hands
+const hands = new Hands({locateFile: (file) => {
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+}});
 
-        // Initialize MediaPipe Hand Tracking
-        try {
-            hands = new Hands({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
-            });
-            hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-            hands.onResults(onResults);
-            status.textContent = "Status: Hand tracking initialized";
-        } catch (error) {
-            console.error("MediaPipe init error:", error);
-            status.textContent = "Status: Hand tracking failed - " + error.message;
-        }
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
 
-        const videoElement = document.createElement('video');
-        videoElement.width = 640;
-        videoElement.height = 480;
-        videoElement.autoplay = true;
-        videoElement.muted = true;
+// 2. Define the Gesture (Open Palm vs Fist)
+hands.onResults((results) => {
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const landmarks = results.multiHandLandmarks[0];
+    
+    // Logic: If the tip of the middle finger (landmark 12) 
+    // is higher than the base (landmark 9), the hand is open.
+    const isHandOpen = landmarks[12].y < landmarks[9].y;
 
-        cameraUtils = new Camera({
-            onFrame: async () => {
-                if (hands) await hands.send({ image: videoElement });
-            },
-            width: 640,
-            height: 480
-        });
+    if (isHandOpen) {
+      videoElement.play();
+      arVideoEntity.setAttribute('scale', '1.2 1.2 1.2'); // Pop up effect
+    } else {
+      videoElement.pause();
+      arVideoEntity.setAttribute('scale', '1 1 1');
+    }
+  }
+});
 
-        function onResults(results) {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks[0];
-                // Pinch for zoom
-                const thumbTip = landmarks[4];
-                const indexTip = landmarks[8];
-                const distance = Math.sqrt((thumbTip.x - indexTip.x)**2 + (thumbTip.y - indexTip.y)**2);
-                if (distance < 0.05) {
-                    zoomScale = Math.max(0.5, Math.min(2, zoomScale + 0.1));
-                    if (videoObject) videoObject.scale.set(zoomScale, zoomScale, 1);
-                } else if (distance > 0.1) {
-                    zoomScale = Math.max(0.5, Math.min(2, zoomScale - 0.1));
-                    if (videoObject) videoObject.scale.set(zoomScale, zoomScale, 1);
-                }
-
-                // Open hand for play/place
-                const isOpenHand = landmarks[8].y < landmarks[6].y && landmarks[12].y < landmarks[10].y;
-                if (isOpenHand && !isVideoPlaced) {
-                    placeVideo(landmarks[9]);
-                    isVideoPlaced = true;
-                } else if (isOpenHand && isVideoPlaced) {
-                    videoObject.material.map.image.play();
-                }
-            }
-        }
-
-        startButton.addEventListener('click', async () => {
-            status.textContent = "Status: Starting AR...";
-            if (!navigator.xr) {
-                status.textContent = "Status: WebXR not supported. Use Chrome on Android.";
-                return;
-            }
-            try {
-                xrSession = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['local-floor']
-                });
-                renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.xr.setSession(xrSession);
-
-                scene = new THREE.Scene();
-                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-                scene.add(camera);
-
-                // Load video
-                const video = document.createElement('video');
-                video.src = 'video.mp4'; // Ensure this file exists
-                video.crossOrigin = 'anonymous';
-                video.loop = true;
-                video.muted = true;
-                video.preload = 'auto';
-
-                video.addEventListener('loadeddata', () => {
-                    status.textContent = "Status: Video loaded";
-                    const videoTexture = new THREE.VideoTexture(video);
-                    const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, transparent: true });
-                    videoObject = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), videoMaterial);
-                    scene.add(videoObject);
-                });
-
-                video.addEventListener('error', (e) => {
-                    status.textContent = "Status: Video load error - " + e.message;
-                });
-
-                // Start hand tracking camera
-                cameraUtils.start();
-
-                renderer.setAnimationLoop(() => {
-                    renderer.render(scene, camera);
-                });
-                status.textContent = "Status: AR session started";
-            } catch (error) {
-                console.error("AR start error:", error);
-                status.textContent = "Status: AR failed - " + error.message;
-            }
-        });
-
-        function placeVideo(handPosition) {
-            if (!videoObject) return;
-            const worldPos = new THREE.Vector3(
-                (handPosition.x - 0.5) * 2,
-                -(handPosition.y - 0.5) * 2,
-                -1
-            );
-            videoObject.position.copy(worldPos);
-            videoObject.lookAt(camera.position);
-        }
+// 3. Connect AR Camera to Hand Tracking
+const camera = new Camera(document.querySelector('video'), {
+  onFrame: async () => {
+    await hands.send({image: document.querySelector('video')});
+  },
+  width: 640,
+  height: 480
+});
+camera.start();
     </script>
-</body>
+  </body>
 </html>

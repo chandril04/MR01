@@ -27,51 +27,56 @@
     </a-scene>
 
     <script>
-      // Simple Hand Gesture Simulation (Example: Play/Pause on click)
-      // For full hand-tracking, you would integrate MediaPipe here.
-      const videoElement = document.getElementById('vid');
-const arVideoEntity = document.querySelector('#ar-video');
+   <script>
+  const videoElement = document.getElementById('vid');
+  const arVideoEntity = document.querySelector('#ar-video');
 
-// 1. Setup MediaPipe Hands
-const hands = new Hands({locateFile: (file) => {
-  return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-}});
+  const hands = new Hands({locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+  }});
 
-hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
 
-// 2. Define the Gesture (Open Palm vs Fist)
-hands.onResults((results) => {
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-    const landmarks = results.multiHandLandmarks[0];
-    
-    // Logic: If the tip of the middle finger (landmark 12) 
-    // is higher than the base (landmark 9), the hand is open.
-    const isHandOpen = landmarks[12].y < landmarks[9].y;
+  hands.onResults((results) => {
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const landmarks = results.multiHandLandmarks[0];
+      const isHandOpen = landmarks[12].y < landmarks[9].y;
 
-    if (isHandOpen) {
-      videoElement.play();
-      arVideoEntity.setAttribute('scale', '1.2 1.2 1.2'); // Pop up effect
-    } else {
-      videoElement.pause();
-      arVideoEntity.setAttribute('scale', '1 1 1');
+      if (isHandOpen) {
+        videoElement.play().catch(() => {}); // Play video
+        arVideoEntity.setAttribute('visible', 'true');
+      } else {
+        videoElement.pause();
+        arVideoEntity.setAttribute('visible', 'false'); // Hide when fist closed
+      }
     }
-  }
-});
+  });
 
-// 3. Connect AR Camera to Hand Tracking
-const camera = new Camera(document.querySelector('video'), {
-  onFrame: async () => {
-    await hands.send({image: document.querySelector('video')});
-  },
-  width: 640,
-  height: 480
-});
-camera.start();
+  // WAIT FOR MINDAR TO READY THE VIDEO
+  const startTracking = () => {
+    const sceneEl = document.querySelector('a-scene');
+    sceneEl.addEventListener("arReady", (event) => {
+        console.log("MindAR is ready!");
+        const uiVideo = document.querySelector('video'); 
+        const camera = new Camera(uiVideo, {
+          onFrame: async () => {
+            await hands.send({image: uiVideo});
+          },
+          width: 640,
+          height: 480
+        });
+        camera.start();
+    });
+  };
+
+  window.onload = startTracking;
+</script>
     </script>
   </body>
 </html>
+

@@ -1,78 +1,118 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <style>
-        #startBtn { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; padding: 20px; background: #FF1493; color: white; border-radius: 50px; border: none; font-size: 1.2rem; }
-        #status { position: fixed; top: 10px; width: 100%; text-align: center; color: white; z-index: 100; font-family: sans-serif; }
-    </style>
+    <meta charset="UTF-8">
+    <title>MR Video App in WebXR</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1646424915/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1646424915/drawing_utils.js"></script>
 </head>
 <body>
-    <div id="status">Click the button to start the MR experience</div>
-    <button id="startBtn">START SURPRISE 🎁</button>
-
-    <a-scene webxr="requiredFeatures: hit-test, local-floor; optionalFeatures: dom-overlay; overlayElement: #status;" renderer="alpha: true;">
-        <a-assets>
-            <video id="giftVideo" src="your-video.mp4" loop crossorigin="anonymous" playsinline></video>
-        </a-assets>
-
-        <a-video id="arVideo" src="#giftVideo" width="1.6" height="0.9" position="0 1.6 -1.5" visible="false"></a-video>
-
-        <a-camera position="0 1.6 0"></a-camera>
-    </a-scene>
-
-    <video id="input_video" style="display:none;"></video>
+    <button id="startAR">Start AR</button>
+    <canvas id="canvas"></canvas>
 
     <script>
-        const arVideo = document.querySelector('#arVideo');
-        const startBtn = document.querySelector('#startBtn');
-        const status = document.querySelector('#status');
-        const videoFile = document.querySelector('#giftVideo');
-        const inputVideo = document.getElementById('input_video');
+        const canvas = document.getElementById('canvas');
+        const startButton = document.getElementById('startAR');
 
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+        let scene, camera, renderer, xrSession, videoObject, isVideoPlaced = false;
+        let zoomScale = 1;
 
-        hands.onResults((results) => {
+        // MediaPipe Hand Tracking
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
+        });
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        const cameraUtils = new Camera({ onFrame: async () => {
+            await hands.send({ image: videoElement });
+        }, width: 640, height: 480 });
+        const videoElement = document.createElement('video');
+        videoElement.srcObject = cameraUtils.video.srcObject;
+
+        hands.onResults(onResults);
+
+        function onResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const lm = results.multiHandLandmarks[0];
-                
-                // MOVE: Video follows the middle finger base (Landmark 9)
-                // We map normalized 0-1 coords to 3D space
-                const x = (lm[9].x - 0.5) * -2.5; 
-                const y = (0.5 - lm[9].y) * 2 + 1.5;
-                arVideo.setAttribute('position', `${x} ${y} -1.5`);
-
-                // ZOOM: Distance between Thumb(4) and Index(8)
-                const dist = Math.sqrt(Math.pow(lm[4].x - lm[8].x, 2) + Math.pow(lm[4].y - lm[8].y, 2));
-                const scale = Math.max(0.5, dist * 6); 
-                arVideo.setAttribute('scale', `${scale} ${scale} 1`);
-
-                if (!arVideo.getAttribute('visible')) {
-                    arVideo.setAttribute('visible', 'true');
-                    videoFile.play();
-                    status.innerText = "❤️ Happy 5th Anniversary! ❤️";
+                const landmarks = results.multiHandLandmarks[0];
+                // Simple gesture detection: Pinch (thumb and index close) for zoom
+                const thumbTip = landmarks[4];
+                const indexTip = landmarks[8];
+                const distance = Math.sqrt((thumbTip.x - indexTip.x)**2 + (thumbTip.y - indexTip.y)**2);
+                if (distance < 0.05) { // Pinch detected
+                    zoomScale = Math.max(0.5, Math.min(2, zoomScale + 0.1)); // Zoom in
+                    if (videoObject) videoObject.scale.set(zoomScale, zoomScale, 1);
+                } else if (distance > 0.1) {
+                    zoomScale = Math.max(0.5, Math.min(2, zoomScale - 0.1)); // Zoom out
+                    if (videoObject) videoObject.scale.set(zoomScale, zoomScale, 1);
                 }
+
+                // Open hand (all fingers extended) for play/place
+                const isOpenHand = landmarks[8].y < landmarks[6].y && landmarks[12].y < landmarks[10].y; // Simplified
+                if (isOpenHand && !isVideoPlaced) {
+                    placeVideo(landmarks[9]); // Place at middle finger knuckle
+                    isVideoPlaced = true;
+                } else if (isOpenHand && isVideoPlaced) {
+                    videoObject.material.map.image.play(); // Play video
+                }
+            }
+        }
+
+        // WebXR AR Setup
+        startButton.addEventListener('click', async () => {
+            if (navigator.xr) {
+                xrSession = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['local-floor', 'bounded-floor']
+                });
+                renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.xr.setSession(xrSession);
+
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                scene.add(camera);
+
+                // Load video
+                const video = document.createElement('video');
+                video.src = 'video.mp4'; // Your video file
+                video.loop = true;
+                video.muted = true; // Unmute if needed, but browsers may block autoplay
+
+                const videoTexture = new THREE.VideoTexture(video);
+                const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, transparent: true });
+                videoObject = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), videoMaterial);
+                scene.add(videoObject);
+
+                // Start hand tracking
+                cameraUtils.start();
+
+                renderer.setAnimationLoop(() => {
+                    renderer.render(scene, camera);
+                });
+            } else {
+                alert('WebXR not supported in this browser.');
             }
         });
 
-        startBtn.addEventListener('click', () => {
-            startBtn.style.display = 'none';
-            status.innerText = "Finding your hand...";
-            
-            // Start the camera for MediaPipe
-            const camera = new Camera(inputVideo, {
-                onFrame: async () => { await hands.send({image: inputVideo}); },
-                width: 1280, height: 720
-            });
-            camera.start();
-        });
+        function placeVideo(handPosition) {
+            // Convert hand position (normalized 0-1) to 3D world space (simplified)
+            const worldPos = new THREE.Vector3(
+                (handPosition.x - 0.5) * 2, // Map to -1 to 1
+                -(handPosition.y - 0.5) * 2,
+                -1 // In front of camera
+            );
+            videoObject.position.copy(worldPos);
+            videoObject.lookAt(camera.position);
+        }
     </script>
 </body>
 </html>
-</body>
 </html>
+
 

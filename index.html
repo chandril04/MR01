@@ -11,64 +11,84 @@
 <body>
     <button id="startAR">Start AR</button>
     <canvas id="canvas"></canvas>
+    <p id="status">Status: Ready</p> <!-- For debugging -->
 
     <script>
         const canvas = document.getElementById('canvas');
         const startButton = document.getElementById('startAR');
+        const status = document.getElementById('status');
 
         let scene, camera, renderer, xrSession, videoObject, isVideoPlaced = false;
         let zoomScale = 1;
+        let hands, cameraUtils;
 
-        // MediaPipe Hand Tracking
-        const hands = new Hands({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
-        });
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
+        // Initialize MediaPipe Hand Tracking
+        try {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
+            });
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            hands.onResults(onResults);
+            status.textContent = "Status: Hand tracking initialized";
+        } catch (error) {
+            console.error("MediaPipe init error:", error);
+            status.textContent = "Status: Hand tracking failed - " + error.message;
+        }
 
-        const cameraUtils = new Camera({ onFrame: async () => {
-            await hands.send({ image: videoElement });
-        }, width: 640, height: 480 });
         const videoElement = document.createElement('video');
-        videoElement.srcObject = cameraUtils.video.srcObject;
+        videoElement.width = 640;
+        videoElement.height = 480;
+        videoElement.autoplay = true;
+        videoElement.muted = true;
 
-        hands.onResults(onResults);
+        cameraUtils = new Camera({
+            onFrame: async () => {
+                if (hands) await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
 
         function onResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                // Simple gesture detection: Pinch (thumb and index close) for zoom
+                // Pinch for zoom
                 const thumbTip = landmarks[4];
                 const indexTip = landmarks[8];
                 const distance = Math.sqrt((thumbTip.x - indexTip.x)**2 + (thumbTip.y - indexTip.y)**2);
-                if (distance < 0.05) { // Pinch detected
-                    zoomScale = Math.max(0.5, Math.min(2, zoomScale + 0.1)); // Zoom in
+                if (distance < 0.05) {
+                    zoomScale = Math.max(0.5, Math.min(2, zoomScale + 0.1));
                     if (videoObject) videoObject.scale.set(zoomScale, zoomScale, 1);
                 } else if (distance > 0.1) {
-                    zoomScale = Math.max(0.5, Math.min(2, zoomScale - 0.1)); // Zoom out
+                    zoomScale = Math.max(0.5, Math.min(2, zoomScale - 0.1));
                     if (videoObject) videoObject.scale.set(zoomScale, zoomScale, 1);
                 }
 
-                // Open hand (all fingers extended) for play/place
-                const isOpenHand = landmarks[8].y < landmarks[6].y && landmarks[12].y < landmarks[10].y; // Simplified
+                // Open hand for play/place
+                const isOpenHand = landmarks[8].y < landmarks[6].y && landmarks[12].y < landmarks[10].y;
                 if (isOpenHand && !isVideoPlaced) {
-                    placeVideo(landmarks[9]); // Place at middle finger knuckle
+                    placeVideo(landmarks[9]);
                     isVideoPlaced = true;
                 } else if (isOpenHand && isVideoPlaced) {
-                    videoObject.material.map.image.play(); // Play video
+                    videoObject.material.map.image.play();
                 }
             }
         }
 
-        // WebXR AR Setup
         startButton.addEventListener('click', async () => {
-            if (navigator.xr) {
+            status.textContent = "Status: Starting AR...";
+            if (!navigator.xr) {
+                status.textContent = "Status: WebXR not supported. Use Chrome on Android.";
+                return;
+            }
+            try {
                 xrSession = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['local-floor', 'bounded-floor']
+                    requiredFeatures: ['local-floor']
                 });
                 renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
                 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -80,32 +100,43 @@
 
                 // Load video
                 const video = document.createElement('video');
-                video.src = 'video.mp4'; // Your video file
+                video.src = 'video.mp4'; // Ensure this file exists
+                video.crossOrigin = 'anonymous';
                 video.loop = true;
-                video.muted = true; // Unmute if needed, but browsers may block autoplay
+                video.muted = true;
+                video.preload = 'auto';
 
-                const videoTexture = new THREE.VideoTexture(video);
-                const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, transparent: true });
-                videoObject = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), videoMaterial);
-                scene.add(videoObject);
+                video.addEventListener('loadeddata', () => {
+                    status.textContent = "Status: Video loaded";
+                    const videoTexture = new THREE.VideoTexture(video);
+                    const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, transparent: true });
+                    videoObject = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), videoMaterial);
+                    scene.add(videoObject);
+                });
 
-                // Start hand tracking
+                video.addEventListener('error', (e) => {
+                    status.textContent = "Status: Video load error - " + e.message;
+                });
+
+                // Start hand tracking camera
                 cameraUtils.start();
 
                 renderer.setAnimationLoop(() => {
                     renderer.render(scene, camera);
                 });
-            } else {
-                alert('WebXR not supported in this browser.');
+                status.textContent = "Status: AR session started";
+            } catch (error) {
+                console.error("AR start error:", error);
+                status.textContent = "Status: AR failed - " + error.message;
             }
         });
 
         function placeVideo(handPosition) {
-            // Convert hand position (normalized 0-1) to 3D world space (simplified)
+            if (!videoObject) return;
             const worldPos = new THREE.Vector3(
-                (handPosition.x - 0.5) * 2, // Map to -1 to 1
+                (handPosition.x - 0.5) * 2,
                 -(handPosition.y - 0.5) * 2,
-                -1 // In front of camera
+                -1
             );
             videoObject.position.copy(worldPos);
             videoObject.lookAt(camera.position);
@@ -113,6 +144,3 @@
     </script>
 </body>
 </html>
-</html>
-
-

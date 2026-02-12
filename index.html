@@ -7,48 +7,81 @@
     <script src="https://unpkg.com/aframe-chromakey-material/dist/aframe-chromakey-material.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
-  
-</head>
+  </head>
   <body>
-    <div id="overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif;">
-    <h1>Web AR Experience</h1>
-    <p>Point at your target and use hand gestures</p>
-    <button id="start-btn" style="padding: 15px 30px; font-size: 18px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px;">Start Camera & Video</button>
-</div>
-    <a-scene mindar-image="imageTargetSrc: ./target.mind;" color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
-      
+    <div id="overlay" style="position:fixed; z-index:999; width:100%; height:100%; background:black; display:flex; flex-direction:column; justify-content:center; align-items:center; color:white;">
+        <h2>Hand Gesture AR</h2>
+        <button id="start-btn" style="padding:15px 30px; border-radius:10px; cursor:pointer;">START AR</button>
+    </div>
+
+    <a-scene mindar-image="imageTargetSrc: ./target.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
       <a-assets>
-        <video id="vid" src="video.mp4" loop="true" crossorigin="anonymous"></video>
+        <video id="vid" src="video.mp4" loop="true" muted playsinline crossorigin="anonymous"></video>
       </a-assets>
 
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <a-entity mindar-image-target="targetIndex: 0">
-        <a-video id="ar-video" src="#vid" width="1" height="0.55" 
-                 material="shader: chromakey; color: 0.1 0.9 0.2" 
+      <a-entity id="ar-target" mindar-image-target="targetIndex: 0">
+        <a-video id="floating-video" src="#vid" width="1" height="0.6" 
+                 material="shader: chromakey; color: 0.1 0.9 0.2"
                  position="0 0 0">
         </a-video>
       </a-entity>
     </a-scene>
 
     <script>
-  document.getElementById('start-btn').addEventListener('click', () => {
-    // 1. Hide the overlay
-    document.getElementById('overlay').style.display = 'none';
-    
-    // 2. Play the video (even if it's hidden) to "unlock" it for the browser
-    const video = document.querySelector('#vid');
-    video.play().then(() => {
-        console.log("Video unlocked and playing!");
-    }).catch(err => {
-        console.error("Video failed to play:", err);
-    });
+      const video = document.querySelector('#vid');
+      const arVideo = document.querySelector('#floating-video');
+      const startBtn = document.querySelector('#start-btn');
 
-    // 3. Start the Hand Tracking
-    startTracking();
-});
+      startBtn.addEventListener('click', () => {
+        document.querySelector('#overlay').style.display = 'none';
+        video.play();
+        initHandControl();
+      });
+
+      function initHandControl() {
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7 });
+
+        hands.onResults((results) => {
+          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+
+            // GESTURE 1: Control Position with Index Finger (Landmark 8)
+            // Normalized coordinates (0 to 1) converted to AR space
+            const fingerX = (landmarks[8].x - 0.5) * 2; 
+            const fingerY = (0.5 - landmarks[8].y) * 2;
+            arVideo.setAttribute('position', `${fingerX} ${fingerY} 0`);
+
+            // GESTURE 2: Open Palm vs Fist (Middle Finger tip 12 vs base 9)
+            const isHandOpen = landmarks[12].y < landmarks[9].y;
+            if (isHandOpen) {
+              video.play();
+              arVideo.setAttribute('scale', '1.2 1.2 1.2');
+            } else {
+              video.pause();
+              arVideo.setAttribute('scale', '0.8 0.8 0.8');
+            }
+          }
+        });
+
+        // Use MindAR's video feed for MediaPipe tracking
+        const startCamera = () => {
+            const feed = document.querySelector('video');
+            if (feed) {
+                const camera = new Camera(feed, {
+                  onFrame: async () => { await hands.send({image: feed}); },
+                  width: 640, height: 480
+                });
+                camera.start();
+            } else { setTimeout(startCamera, 1000); }
+        };
+        startCamera();
+      }
     </script>
   </body>
 </html>
+
 
 
